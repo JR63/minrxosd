@@ -10,13 +10,8 @@
 
 #include "TSRXTalk.h"
 
-static uint8_t		tsrxstatus = TSRX_BOOT;
-static uint8_t		version = TSRX_IDLE_OLDER;
-
-static int		view_cnt = 0;
-
-static uint16_t		ChannelFails[NUM_CHANNELS];
-static uint16_t		ChannelCount = 0;
+static uint16_t		ChannelFails[CHANNEL_MAX];
+static uint32_t		ChannelCount = 0;
 static unsigned long	BadChannelTime = 0;
 static uint16_t		BadChannel = 0;
 static uint16_t		BadChannelDelta = 0;
@@ -27,9 +22,10 @@ static uint16_t		FailsafesDelta = 0;
 static uint16_t		BadPackets = 0;
 static uint16_t		BadPacketsDelta = 0;
 
-static uint16_t		GoodPackets = 0;
+static uint32_t		GoodPackets = 0;
 static uint16_t		GoodPacketsDelta = 0;
-#endif
+
+#endif // PROTOCOL_TSRXTALK
 
 
 static uint8_t      panel = 0;                      // active panel: 0 = first panel. 1 = second panel, 2 = panel off

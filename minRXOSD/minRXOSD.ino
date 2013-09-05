@@ -86,7 +86,18 @@
 // Objects and serial definitions
 FastSerialPort0(Serial);
 OSD osd;
-SimpleTimer  DelayTimer;
+
+
+/* ************************************************/
+/* *************** help functions ****************/
+
+void unplugSlaves(){
+// Unplug list of SPI
+#ifdef ArduCAM328
+    digitalWrite(10,  HIGH);              // unplug USB HOST: ArduCam Only
+#endif
+    digitalWrite(MAX7456_SELECT,  HIGH);  // unplug OSD
+}
 
 
 /* **********************************************/
@@ -151,14 +162,8 @@ void setup()
 #endif
 
     pwm_read_init();
-
-    // Startup delay timers  
-    DelayTimer.Set(&OnDelayTimer, 100);
-
-    // clear display and enable timers
-    osd.clear();
-    DelayTimer.Enable();
     
+    osd.clear();
     panLogo();
     
     osd.setPanel(5, 0);
@@ -172,32 +177,8 @@ void setup()
 
 void loop() 
 {
-    if (tsrxstatus == TSRX_BOOT) {
-	tsrxtalk_read();
-    } else {
-        pwm_read();		// currently we have time for polling, later we will use int version
-	if (tsrxtalk_read()) {
-		OnDelayTimer();
-	} else {
-		DelayTimer.Run();
-	}
+    if (tsrxtalk_read()) {
+	pwm_read();		// currently we have time for polling, later we will use int version
+	writePanels();
     }
-}
-
-
-/* ************************************************/
-/* ******** functions used in main loop() *********/
-
-void OnDelayTimer()
-{
-    writePanels();
-}
-
-
-void unplugSlaves(){
-// Unplug list of SPI
-#ifdef ArduCAM328
-    digitalWrite(10,  HIGH);              // unplug USB HOST: ArduCam Only
-#endif
-    digitalWrite(MAX7456_SELECT,  HIGH);  // unplug OSD
 }

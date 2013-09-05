@@ -14,10 +14,25 @@
 #ifdef PROTOCOL_TSRXTALK
 
 
+static uint8_t		tsrxstatus = TSRX_BOOT;
+static uint8_t		version = TSRX_IDLE_OLDER;
+
+static unsigned long	LastPacketTime = 0;
+static uint8_t		PacketTimeout = 37;
+static uint8_t		PacketsPerSecond = 30;
+static uint8_t		PacketWindow[PACKET_WINDOW_MAX];
+
+static int8_t		channel_cnt = -100;
+static uint32_t		scan_value;
+
+
 void tsrxtalk_init(void)
 {
 	int i;
-	for (i = 0; i < NUM_CHANNELS; i++) {
+	for (i = 0; i < PACKET_WINDOW_MAX; i++) {
+		PacketWindow[i] = PACKED_GOOD;
+	}
+	for (i = 0; i < CHANNEL_MAX; i++) {
 		ChannelFails[i] = 0;
 	}
 	ChannelCount = 0;
@@ -30,11 +45,13 @@ void tsrxtalk_init(void)
 	BadPacketsDelta = 0;
 	GoodPackets = 0;
 	GoodPacketsDelta = 0;
+	LastPacketTime = millis();
 }
 
 
-static int8_t	channel_cnt = -100;
-static int16_t	scan_value;
+uint8_t get_tsrx_version(void) {
+	return version;
+}
 
 
 void scan_value_clear(void) {
@@ -47,7 +64,7 @@ void scan_value_add(char c) {
 }
 
 
-void scan_value_use(void) {
+void scan_value_set(void) {
 	switch (tsrxstatus) {
 		case TSRX_FAILSAVE_SCAN:
 			FailsafesDelta = scan_value - Failsafes;
@@ -62,6 +79,34 @@ void scan_value_use(void) {
 			BadPackets = scan_value;
 		break;
 	}
+}
+
+
+int8_t scan_value_percent(void) {
+	return (int8_t) ((1.0 - (float) BadPacketsDelta / (float) (GoodPacketsDelta + BadPacketsDelta)) * 100.0 + 0.5);
+}
+
+
+void packet_window_set(uint8_t good_bad, uint8_t cnt) {
+	static uint8_t index = 0;
+	int i;
+	
+	for (i = 0; i < cnt; i++) {
+		PacketWindow[index++] = good_bad;
+		index = index >= PacketsPerSecond ? 0 : index;
+	}
+}
+
+
+int8_t packet_window_percent(void) {
+	int i;
+	uint8_t bads = 0;
+	
+	for (i = 0; i < PacketsPerSecond; i++) {
+		if (PacketWindow[i] == PACKED_BAD) bads++;
+	}
+	
+	return (int8_t) ((1.0 - (float) bads / (float) PacketsPerSecond) * 100.0 + 0.5);
 }
 
 
@@ -147,12 +192,67 @@ int detect_str_contact(uint8_t c) {
 }
 
 
+uint16_t detect_frameduration(uint8_t c) {
+	static int detect_cnt = 0;
+	static uint16_t frameduration = 0;
+	uint16_t ret = 0;
+	
+	// dumb string detect looking for string 'Rate: ' and the following value
+	switch (detect_cnt) {
+		case 0:
+			if (c == 'R') detect_cnt++;
+		break;
+		case 1:
+			if (c == 'a') detect_cnt++;
+			else detect_cnt = 0;
+		break;
+		case 2:
+			if (c == 't') detect_cnt++;
+			else detect_cnt = 0;
+		break;
+		case 3:
+			if (c == 'e') detect_cnt++;
+			else detect_cnt = 0;
+		break;
+		case 4:
+			if (c == ':') detect_cnt++;
+			else detect_cnt = 0;
+		break;
+		case 5:
+			if (c == ' ') detect_cnt++;
+			else detect_cnt = 0;
+		break;
+		case 6:
+		case 7:
+		case 8:
+		case 9:
+		case 10:
+			frameduration = frameduration * 10 + c - '0';
+			detect_cnt++;
+		break;
+		case 11:
+			PacketTimeout = (uint8_t) ((frameduration * PACKET_TIMEOUT_FACTOR) / 1000.0);
+			//osd.printf("|packet timeout: %2u", PacketTimeout);
+			PacketsPerSecond = (uint8_t) (1000.0 / (frameduration / 1000.0));
+			PacketsPerSecond = PacketsPerSecond > PACKET_WINDOW_MAX ? PACKET_WINDOW_MAX : PacketsPerSecond;
+			//osd.printf("|packets per second: %2u", PacketsPerSecond);
+			detect_cnt++;
+		break;
+		case 12:
+			ret = frameduration;
+		break;
+	}
+	return ret;
+}
+
+
 int tsrxtalk_parse(uint8_t c) {
-	static uint16_t	prev_chan_fails_val;
+	static uint16_t	new_chan_fails_val;
 
 	switch (tsrxstatus) {
 		case TSRX_BOOT:
 			if (detect_str_eeprom(c) && !detect_str_contact(c)) {
+				detect_frameduration(c);
 				if (c == '\n' || c == '\r') {
 					if (c == '\n') osd.write('|');
 				} else {
@@ -162,24 +262,23 @@ int tsrxtalk_parse(uint8_t c) {
 			}
 		break;
 		case TSRX_VERSION_CHECK:
-			if (detect_str_eeprom(c) && detect_str_contact(c)) version = TSRX_IDLE_FROM_V25;
-			if (version == TSRX_IDLE_OLDER) view_cnt = 1;
-			if (version == TSRX_IDLE_FROM_V25) view_cnt = 2;
+			if (detect_str_eeprom(c) && detect_str_contact(c)) {
+				version = TSRX_IDLE_FROM_V25;
+			}
 			tsrxstatus = version;
 			tsrxtalk_parse(c);
 		break;
 		case TSRX_IDLE_OLDER:
 			int i;
-	
-			BadPackets++;
-	
 			if (c < FIRST_CHANNEL)			// lower than known channels
 				i = 0;
 			else if (c > LAST_CHANNEL)		// higher than known channels
-				i = NUM_CHANNELS - 1;
+				i = CHANNEL_MAX - 1;
 			else					// known channel
 				i = c - FIRST_CHANNEL + 1;
-	
+			BadChannel++;
+			BadChannelDelta++;
+			BadChannelTime = millis();
 			ChannelFails[i]++;
 		break;
 		case TSRX_IDLE_FROM_V25:
@@ -216,7 +315,7 @@ int tsrxtalk_parse(uint8_t c) {
 			if (c >= '0' && c <= '9') {
 				scan_value_add(c);
 			} else {
-				scan_value_use();
+				scan_value_set();
 				tsrxstatus = version;
 				tsrxtalk_parse(c);
 			}
@@ -229,18 +328,15 @@ int tsrxtalk_parse(uint8_t c) {
 				break;
 				case SUBTOKEN_VALUE_DATA_1:
 					channel_cnt++;
-					if (channel_cnt < 0 || channel_cnt >= NUM_CHANNELS) channel_cnt = -100;
+					if (channel_cnt < 0 || channel_cnt >= CHANNEL_MAX) channel_cnt = -100;
 					tsrxstatus++;
 				break;
 				default:
 					tsrxstatus = version;
 			}
 		break;
-		case TSRX_VALUE_READ_1:
-			if (channel_cnt >= 0 && channel_cnt < NUM_CHANNELS) {
-				prev_chan_fails_val = ChannelFails[channel_cnt];
-				ChannelFails[channel_cnt] = c<<8;		// hi byte
-			}
+		case TSRX_VALUE_READ_1:					// hi byte
+			new_chan_fails_val = c<<8;
 			tsrxstatus++;
 		break;
 		case TSRX_VALUE_NEXT:
@@ -252,20 +348,26 @@ int tsrxtalk_parse(uint8_t c) {
 					tsrxstatus = version;
 			}
 		break;
-		case TSRX_VALUE_READ_2:
-			if (channel_cnt >= 0 && channel_cnt < NUM_CHANNELS) {
-				ChannelFails[channel_cnt] += c;			// lo byte
-				ChannelCount++;
-				if (prev_chan_fails_val != ChannelFails[channel_cnt]) {
-					BadChannel += ChannelFails[channel_cnt] - prev_chan_fails_val;
-					BadChannelDelta += ChannelFails[channel_cnt] - prev_chan_fails_val;
-					BadChannelTime = millis();
-				}
-			}
+		case TSRX_VALUE_READ_2:					// lo byte
+			new_chan_fails_val += c;
 			tsrxstatus++;
 		break;
-		case TSRX_VALUE_PLOT:
-			tsrxstatus = version;				// plot marker
+		case TSRX_VALUE_PLOT:					// plot marker
+			LastPacketTime = millis();
+			if (channel_cnt >= 0 && channel_cnt < CHANNEL_MAX) {
+				ChannelCount++;
+				if (ChannelFails[channel_cnt] != new_chan_fails_val) {
+					uint16_t delta_channel_fails = new_chan_fails_val - ChannelFails[channel_cnt];
+					packet_window_set(PACKED_BAD, delta_channel_fails);
+					BadChannel += delta_channel_fails;
+					BadChannelDelta += delta_channel_fails;
+					BadChannelTime = millis();
+					ChannelFails[channel_cnt] = new_chan_fails_val;
+				} else {
+					packet_window_set(PACKED_GOOD, 1);
+				}
+			}
+			tsrxstatus = version;
 		break;
 		
 		default:
@@ -277,6 +379,7 @@ int tsrxtalk_parse(uint8_t c) {
 int tsrxtalk_read(void) {
 	static uint8_t crlf_count = 0;
 	
+	// check version after boot time
 	if (tsrxstatus == TSRX_BOOT && millis() > 10000) {
 		osd.closePanel();
 		osd.clear();
@@ -304,7 +407,25 @@ int tsrxtalk_read(void) {
 		tsrxtalk_parse(c);
 	}
 
-        return 0;
+	// simulate bad channel if no packet was received for PacketTimeout milli seconds
+	if (tsrxstatus >= TSRX_IDLE_FROM_V25 && millis() > LastPacketTime + PacketTimeout) {
+		LastPacketTime = millis();
+		packet_window_set(PACKED_BAD, 1);
+		BadChannel++;
+		BadChannelDelta++;
+		BadChannelTime = millis();
+	}
+		
+	// clear BadChannelDelta after some time
+	if (BadChannelDelta && millis() > BadChannelTime + CHANNEL_DELTA_DURATION) {
+		BadChannelDelta = 0;
+	}
+	
+	if (tsrxstatus < TSRX_IDLE_OLDER) {
+		return 0;
+	} else {
+		return 1;
+	}
 }
 
 #endif // PROTOCOL_TSRXTALK

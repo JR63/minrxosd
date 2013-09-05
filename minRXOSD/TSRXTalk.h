@@ -16,15 +16,24 @@
 
 // TODO:
 //	for V2.5 and up
-//		auf charset mit Kleinbuchstaben wechseln und Zeile 'if (c >= 'A' && c <= 'Z') c += 'a' - 'A';' entfernen
 //		OSD_Vars.h bereinigen		(bis auf PAL/NTSC Auswahl)
 //		OSD_Config.h bereinigen		(bis auf PAL/NTSC Auswahl)
 // 		evtl. live RSSI
+//		evtl. auf charset mit Kleinbuchstaben wechseln und Zeile 'if (c >= 'A' && c <= 'Z') c += 'a' - 'A';' entfernen
 //		evtl. RX bootstring merken um ihn jederzeit in einem Panel anzeigen zu koennen
 
 
-#define	NUM_CHANNELS			24
+#define PACKET_TIMEOUT_FACTOR		1.2		// + 20% of frameduration
+#define PACKET_WINDOW_MAX		50
+#define	PACKED_GOOD			0
+#define	PACKED_BAD			1
+
+
+#define	CHANNEL_MAX			24
+#define	CHANNEL_ERROR_SHOW_MAX		999
+#define	CHANNEL_DIV			100
 #define	CHANNEL_STATUS_ROWS		3
+#define	CHANNEL_DELTA_DURATION		4500	// [ms]
 
 
 // for older versions
@@ -66,6 +75,9 @@ typedef enum {
 
 
 void tsrxtalk_init(void);
+uint8_t get_tsrx_version(void);
+int8_t scan_value_percent(void);
+int8_t packet_window_percent(void);
 int tsrxtalk_read(void);
 
 

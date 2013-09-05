@@ -13,28 +13,28 @@
 #include "TSRXTalk.h"
 
 
-#define	WARNING_DURATION			4500	// [ms]
+#define PAN_WARN_X				4	//	x position of the warning
+#define PAN_WARN_Y				1	//	y position of the warning
+
+#define PAN_CHAN_STAT_X				4	//	x position of the channel status
+#define PAN_CHAN_STAT_Y				2	//	y position of the channel status
+
+#define PAN_RX_STAT_X				22	//	x position of the receiver status
+#define PAN_RX_STAT_Y				8	//	y position of the receiver status
+
+
+#define CRITICAL_PERCENT			75	// [%]	set this to a level that you think is critical for your environment
+
+
+#define SWITCHING_TIME				1000	// [ms]	the time within the switching has to happen for screen switching
 
 #define WARN_FLASH_TIME				1000	// [ms]	time with which the warnings are flashing
 #define WARN_MAX				2	//	number of implemented warnings
 
-
-#define PAN_WARN_X				5
-#define PAN_WARN_Y				1
+#define VIEW_CNT				2	//	number of implemented views
 
 
-#define PAN_CHAN_STAT_X_OLDER			3
-#define PAN_CHAN_STAT_Y_OLDER			2
-
-
-#define PAN_CHAN_STAT_X_FROM_V25		4
-#define PAN_CHAN_STAT_Y_FROM_V25		2
-
-#define PAN_RX_STAT_X_FROM_V25			22
-#define PAN_RX_STAT_Y_FROM_V25			8
-
-
-static int tsrx_data_view = 0;
+static int data_view = 0;
 
 
 /******* MAIN FUNCTIONS *******/
@@ -69,8 +69,8 @@ void switchView(void) {
 	
 	if (switch_state == 1 && !PWM_CHECK(stick_position)) {
 		switch_state = 0;
-		if (millis() - switch_time < 1000) {
-			tsrx_data_view = (tsrx_data_view >= view_cnt) ? 0 : tsrx_data_view + 1;
+		if (millis() - switch_time < SWITCHING_TIME) {
+			data_view = (data_view >= VIEW_CNT) ? 0 : data_view + 1;
 			osd.clear();
 		}
 	}
@@ -83,28 +83,20 @@ void switchView(void) {
 // Output : show the views
 /******************************************************************/
 void showView(void) {
-	if (version == TSRX_IDLE_OLDER) {
-		switch (tsrx_data_view) {
-			case 0:
-				panChannelStatus(PAN_CHAN_STAT_X_OLDER, PAN_CHAN_STAT_Y_OLDER);
-			break;
-			case 1:
-			break;
-		}
+	if (BadPacketsDelta || BadChannelDelta) {
+		if (data_view > 1) data_view = 1;
 	}
 	
-	if (version == TSRX_IDLE_FROM_V25) {
-		switch (tsrx_data_view) {
-			case 0:
-				panChannelStatus(PAN_CHAN_STAT_X_FROM_V25, PAN_CHAN_STAT_Y_FROM_V25);
-				panRxStatus(PAN_RX_STAT_X_FROM_V25, PAN_RX_STAT_Y_FROM_V25);
-			break;
-			case 1:
-				panRxStatus(PAN_RX_STAT_X_FROM_V25, PAN_RX_STAT_Y_FROM_V25);
-			break;
-			case 2:
-			break;
-		}
+	switch (data_view) {
+		case 0:
+			panChannelStatus(PAN_CHAN_STAT_X, PAN_CHAN_STAT_Y);
+			panRxStatus(PAN_RX_STAT_X, PAN_RX_STAT_Y);
+		break;
+		case 1:
+			panRxStatus(PAN_RX_STAT_X, PAN_RX_STAT_Y);
+		break;
+		case 2:
+		break;
 	}
 	
 	panWarn(PAN_WARN_X, PAN_WARN_Y);
@@ -137,7 +129,7 @@ void panBoot(int first_col, int first_line) {
 void panLogo() {
 	osd.setPanel(5, 0);
 	osd.openPanel();
-	osd.printf_P(PSTR("minrxosd 0.1.0  beta"));
+	osd.printf_P(PSTR("minrxosd 0.2.0  beta"));
 	osd.closePanel();
 }
 
@@ -146,41 +138,41 @@ void panLogo() {
 // Panel  : panWarn
 // Needs  : X, Y locations
 // Output : Warnings if there are any
+//
+// Layout:
+//		|BAD PACKETSxxxxx @yyy%|  with debug channel feature
+//		|!CRITICAL! xxxxx @yyy%|  with debug channel feature
+//		|FAILSAFE xxxx    @yyy%|  with debug channel feature
+//
+//		|  BAD PACKETS xxxxxx  |  without debug channel feature
+//		|     FAILSAFE xxx     |  without debug channel feature
+//
 /******************************************************************/
 void panWarn(int first_col, int first_line) {
-    static char warning_string[20];
+    static char warning_string[22];
     static uint8_t last_warning_type = 1;
-    static uint8_t warning_type = 0;
+    static uint8_t warning_type = 1;
     static unsigned long warn_text_timer = 0;
     int cycle;
 
     if (millis() > warn_text_timer) {				// if the text or blank text has been shown for a while
         if (warning_type) {					// there was a warning, so we now blank it out for a while
             last_warning_type = warning_type;			// save the warning type for cycling
-            warning_type = 0;
-	    sprintf(warning_string, "                    ");	// blank the warning
-	    warn_text_timer = millis() + WARN_FLASH_TIME / 2;	// set clear warning time
+            warning_type = 0;					// set clear warning time
+	    warn_text_timer = millis() + WARN_FLASH_TIME / 2;
         } else {
             cycle = last_warning_type;				// start the warning checks cycle where we left it last time
             do {				                // cycle through the warning checks
                 if (++cycle > WARN_MAX) cycle = 1;
                 switch (cycle) {
-			case 1:					// BAD PACKETS xxxxxx
-				if (BadPacketsDelta != 0 || BadChannelDelta != 0) {
-					if (BadChannelDelta != 0 && millis() > BadChannelTime + WARNING_DURATION) {
-						BadChannelDelta = 0;
-					}
+			case 1:					// BAD PACKETS
+				if (BadChannelDelta || BadPacketsDelta) {
 					warning_type = cycle;
-					if (BadChannelDelta > BadPacketsDelta)
-						sprintf(warning_string, " bad packets %6i ", BadChannelDelta);
-					else
-						sprintf(warning_string, " bad packets %6i ", BadPacketsDelta);
 				}
 			break;
-			case 2:					// FAILSAFE xxxx
-				if (FailsafesDelta != 0) {
+			case 2:					// FAILSAFE
+				if (FailsafesDelta) {
 					warning_type = cycle;
-					sprintf(warning_string, "    failsafe %4i   ", Failsafes);
 				}
 			break;
                 }
@@ -189,12 +181,53 @@ void panWarn(int first_col, int first_line) {
 		warn_text_timer = millis() + WARN_FLASH_TIME;	// set show warning time
 	    }
         }
-
-	osd.setPanel(first_col, first_line);
-	osd.openPanel();
-	osd.printf("%s", warning_string);
-	osd.closePanel();
     }
+
+    switch (warning_type) {
+	case 0:		// blank the warning
+		if (ChannelCount) {
+			sprintf(warning_string, "                 ");
+		} else {
+			sprintf(warning_string, "                      ");
+		}
+	break;
+	case 1:		// BAD PACKETS
+		if (ChannelCount) {
+			if (packet_window_percent() >= CRITICAL_PERCENT) {
+				sprintf(warning_string, "bad packets%5u ", BadChannelDelta);
+			} else {
+				sprintf(warning_string, "!critical! %5u ", BadChannelDelta);
+			}
+		} else {
+			if (BadChannelDelta) {
+				sprintf(warning_string, "  bad packets %6u  ", BadChannelDelta);
+			}
+			if (BadPacketsDelta) {
+				sprintf(warning_string, "  bad packets %6u  ", BadPacketsDelta);
+			}
+		}
+	break;
+	case 2:		// FAILSAFE
+		if (ChannelCount) {
+			sprintf(warning_string, "failsafe %4u    ", Failsafes);
+		} else {
+			sprintf(warning_string, "     failsafe %3u     ", Failsafes);
+		}
+	break;
+    }
+
+    osd.setPanel(first_col, first_line);
+    osd.openPanel();
+    if (ChannelCount) {
+	if (BadChannelDelta == 0 && packet_window_percent() == 100) {
+		osd.printf("%s     ", warning_string);
+	} else {
+		osd.printf("%s%c%3u%c", warning_string, 0xE1, packet_window_percent(), '%');
+	}
+    } else {
+	osd.printf("%s", warning_string);
+    }
+    osd.closePanel();
 }
 
 
@@ -204,28 +237,16 @@ void panWarn(int first_col, int first_line) {
 // Output : Shows the channel status
 /******************************************************************/
 void panChannelStatus(int first_col, int first_line) {
-	static unsigned long last_bad_time = 0;
-	static uint16_t last_bad_count = 0;
-	uint16_t bad_count = 0;
 	static uint8_t show = 0;
 	int x, y;
-	int div = 100;
+	int div = CHANNEL_DIV;
 	int digit;
 	int sub;
 	char c;
 	
-	
-	if (version == TSRX_IDLE_OLDER) {
-		bad_count = BadPackets;
-	} else {
-		bad_count = BadChannel;
-	}
-	if (last_bad_count != bad_count) {
+	if (BadChannelDelta) {
 		show = 1;
-		last_bad_time = millis();
-		last_bad_count = bad_count;
-	}
-	if (millis() - last_bad_time > WARNING_DURATION) {
+	} else {
 		show = 0;
 	}
 	
@@ -233,10 +254,10 @@ void panChannelStatus(int first_col, int first_line) {
 	osd.openPanel();
     
 	for (y = 0; y < CHANNEL_STATUS_ROWS; y++) {
-		for (x = 0; x < NUM_CHANNELS; x++) {
+		for (x = 0; x < CHANNEL_MAX; x++) {
 			if (!show) {
 				c = ' ';
-			} else if (ChannelFails[x] > 999) {
+			} else if (ChannelFails[x] > CHANNEL_ERROR_SHOW_MAX) {
 				c = '*';
 			} else {
 				digit = (int)(ChannelFails[x] / div);
@@ -270,14 +291,19 @@ void panChannelStatus(int first_col, int first_line) {
 void panRxStatus(int first_col, int first_line) {
 	osd.setPanel(first_col, first_line);
 	osd.openPanel();
-	osd.printf("%6i%c|", Failsafes, 'f');
-	if (ChannelCount) {
-		osd.printf("%6i%c|", BadChannel, 'c');
-		osd.printf("%6i%c|", ChannelCount, 'p');
+	if (get_tsrx_version() == TSRX_IDLE_OLDER) {
+		osd.printf("%6u%c|", BadChannel, 'c');
 	} else {
-		osd.printf("%6i%c|", BadPackets, 'b');
-		osd.printf("%6i%c|", GoodPackets, 'g');
+		osd.printf("%6u%c|", Failsafes, 'f');
+		if (ChannelCount) {
+			osd.printf("%6u%c|", BadChannel, 'c');
+			osd.printf("%6lu%c|", ChannelCount, 'p');
+			//osd.printf(" %c %3u%c", 0xE1, packet_window_percent(), '%');
+		} else {
+			osd.printf("%6u%c|", BadPackets, 'b');
+			//osd.printf("%6lu%c|", GoodPackets, 'g');
+			osd.printf(" %c %3u%c", 0xE1, scan_value_percent(), '%');
+		}
 	}
-	osd.printf("%c%5.1f%c", 0xE1, (float)(GoodPacketsDelta) / (float)(GoodPacketsDelta + BadPacketsDelta) * 100.0, '%');
 	osd.closePanel();
 }
