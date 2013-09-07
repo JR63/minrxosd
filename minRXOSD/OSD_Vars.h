@@ -3,9 +3,6 @@
 //
 
 
-#define npanels		2			    // # of possible panels
-
-
 #ifdef PROTOCOL_TSRXTALK
 
 #include "TSRXTalk.h"
@@ -26,6 +23,9 @@ static uint32_t		GoodPackets = 0;
 static uint16_t		GoodPacketsDelta = 0;
 
 #endif // PROTOCOL_TSRXTALK
+
+
+#define npanels		2			    // # of possible panels
 
 
 static uint8_t      panel = 0;                      // active panel: 0 = first panel. 1 = second panel, 2 = panel off

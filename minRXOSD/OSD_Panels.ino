@@ -13,25 +13,29 @@
 #include "TSRXTalk.h"
 
 
+#define CRITICAL_PERCENT			75	// [%]	set this to a level that you think is critical for your environment
+
+#define	SHOW_MINIMAL					// 	show minimalized information
+
 #define PAN_WARN_X				4	//	x position of the warning
-#define PAN_WARN_Y				1	//	y position of the warning
+#define PAN_WARN_Y				3	//	y position of the warning
 
 #define PAN_CHAN_STAT_X				4	//	x position of the channel status
-#define PAN_CHAN_STAT_Y				2	//	y position of the channel status
+#define PAN_CHAN_STAT_Y				4	//	y position of the channel status
 
 #define PAN_RX_STAT_X				22	//	x position of the receiver status
-#define PAN_RX_STAT_Y				8	//	y position of the receiver status
-
-
-#define CRITICAL_PERCENT			75	// [%]	set this to a level that you think is critical for your environment
+#define PAN_RX_STAT_Y				9	//	y position of the receiver status
 
 
 #define SWITCHING_TIME				1000	// [ms]	the time within the switching has to happen for screen switching
 
-#define WARN_FLASH_TIME				1000	// [ms]	time with which the warnings are flashing
+#define VIEW_CNT				2	//	number of implemented views
+
 #define WARN_MAX				2	//	number of implemented warnings
 
-#define VIEW_CNT				2	//	number of implemented views
+#define WARN_ON_TIME				1000	// [ms]	time warnings showing
+#define WARN_OFF_TIME				250	// [ms]	time warnings not showing
+#define BLINK_TIME				250	// [ms]	blink time
 
 
 static int data_view = 0;
@@ -129,7 +133,7 @@ void panBoot(int first_col, int first_line) {
 void panLogo() {
 	osd.setPanel(5, 0);
 	osd.openPanel();
-	osd.printf_P(PSTR("minrxosd 0.2.0  beta"));
+	osd.printf_P(PSTR("minrxosd 0.3.0  beta"));
 	osd.closePanel();
 }
 
@@ -139,10 +143,10 @@ void panLogo() {
 // Needs  : X, Y locations
 // Output : Warnings if there are any
 //
-// Layout:
-//		|BAD PACKETSxxxxx @yyy%|  with debug channel feature
-//		|!CRITICAL! xxxxx @yyy%|  with debug channel feature
-//		|FAILSAFE xxxx    @yyy%|  with debug channel feature
+// Layout :
+//		|BAD PACKETSxxxxx  abc%|  with debug channel feature
+//		|!CRITICAL! xxxxx  abc%|  with debug channel feature
+//		|FAILSAFE xxxx     abc%|  with debug channel feature
 //
 //		|  BAD PACKETS xxxxxx  |  without debug channel feature
 //		|     FAILSAFE xxx     |  without debug channel feature
@@ -153,13 +157,15 @@ void panWarn(int first_col, int first_line) {
     static uint8_t last_warning_type = 1;
     static uint8_t warning_type = 1;
     static unsigned long warn_text_timer = 0;
+    static unsigned long blink_timer = 0;
+    static uint8_t blink_cnt = 0;
     int cycle;
 
     if (millis() > warn_text_timer) {				// if the text or blank text has been shown for a while
         if (warning_type) {					// there was a warning, so we now blank it out for a while
             last_warning_type = warning_type;			// save the warning type for cycling
             warning_type = 0;					// set clear warning time
-	    warn_text_timer = millis() + WARN_FLASH_TIME / 2;
+	    warn_text_timer = millis() + WARN_OFF_TIME;
         } else {
             cycle = last_warning_type;				// start the warning checks cycle where we left it last time
             do {				                // cycle through the warning checks
@@ -178,25 +184,25 @@ void panWarn(int first_col, int first_line) {
                 }
             } while (!warning_type && cycle != last_warning_type);
 	    if (warning_type) {					// if there is a warning
-		warn_text_timer = millis() + WARN_FLASH_TIME;	// set show warning time
+		warn_text_timer = millis() + WARN_ON_TIME;	// set show warning time
 	    }
         }
     }
 
     switch (warning_type) {
 	case 0:		// blank the warning
-		if (ChannelCount) {
+		if (DEBUG_CHAN_ACTIVE) {
 			sprintf(warning_string, "                 ");
 		} else {
 			sprintf(warning_string, "                      ");
 		}
 	break;
-	case 1:		// BAD PACKETS
-		if (ChannelCount) {
+	case 1:		// BAD PACKETS or !CRITICAL!
+		if (DEBUG_CHAN_ACTIVE) {
 			if (packet_window_percent() >= CRITICAL_PERCENT) {
 				sprintf(warning_string, "bad packets%5u ", BadChannelDelta);
 			} else {
-				sprintf(warning_string, "!critical! %5u ", BadChannelDelta);
+				sprintf(warning_string, "%ccritical%c %5u ", 0x9F, 0x9F, BadChannelDelta);
 			}
 		} else {
 			if (BadChannelDelta) {
@@ -208,7 +214,7 @@ void panWarn(int first_col, int first_line) {
 		}
 	break;
 	case 2:		// FAILSAFE
-		if (ChannelCount) {
+		if (DEBUG_CHAN_ACTIVE) {
 			sprintf(warning_string, "failsafe %4u    ", Failsafes);
 		} else {
 			sprintf(warning_string, "     failsafe %3u     ", Failsafes);
@@ -218,11 +224,20 @@ void panWarn(int first_col, int first_line) {
 
     osd.setPanel(first_col, first_line);
     osd.openPanel();
-    if (ChannelCount) {
-	if (BadChannelDelta == 0 && packet_window_percent() == 100) {
+    if (DEBUG_CHAN_ACTIVE) {
+	uint8_t percent = packet_window_percent();
+	if (BadChannelDelta == 0 && percent == 100) {
 		osd.printf("%s     ", warning_string);
+		blink_cnt = 0;
 	} else {
-		osd.printf("%s%c%3u%c", warning_string, 0xE1, packet_window_percent(), '%');
+		if (millis() > blink_timer + BLINK_TIME) {
+			blink_cnt++;
+			blink_timer = millis();
+		}
+		if (percent == 100)
+			osd.printf("%s %3u%c", warning_string, percent, 0xE3);
+		else
+			osd.printf("%s %c%2u%c", warning_string, 0xE0 + (blink_cnt % 2), percent, 0xE2 + (blink_cnt % 2));
 	}
     } else {
 	osd.printf("%s", warning_string);
@@ -291,19 +306,45 @@ void panChannelStatus(int first_col, int first_line) {
 void panRxStatus(int first_col, int first_line) {
 	osd.setPanel(first_col, first_line);
 	osd.openPanel();
+#ifdef SHOW_MINIMAL
 	if (get_tsrx_version() == TSRX_IDLE_OLDER) {
-		osd.printf("%6u%c|", BadChannel, 'c');
+		if (BadChannel) osd.printf("%6u%c", BadChannel, 0x9D);
 	} else {
-		osd.printf("%6u%c|", Failsafes, 'f');
-		if (ChannelCount) {
-			osd.printf("%6u%c|", BadChannel, 'c');
-			osd.printf("%6lu%c|", ChannelCount, 'p');
-			//osd.printf(" %c %3u%c", 0xE1, packet_window_percent(), '%');
+		if (DEBUG_CHAN_ACTIVE) {
+			char rotary = 0x90 + ChannelCount % 12;
+			if (Failsafes > 9 || BadChannel > 999) {
+				osd.printf("%5u%c%c", BadChannel, 0x9D, rotary);
+				if (Failsafes) osd.printf("|%5u%c", Failsafes, 0x9C);
+			} else if (Failsafes) {
+				osd.printf("%1u%c%3u%c%c", Failsafes, 0x9C, BadChannel, 0x9D, rotary);
+			} else if (BadChannel) {
+				osd.printf("%5u%c%c", BadChannel, 0x9D, rotary);
+			} else {
+				osd.printf("      %c", rotary);
+			}
 		} else {
-			osd.printf("%6u%c|", BadPackets, 'b');
-			//osd.printf("%6lu%c|", GoodPackets, 'g');
-			osd.printf(" %c %3u%c", 0xE1, scan_value_percent(), '%');
+			if (scan_value_percent() < 100) osd.printf(" %c %3u%c|", 0xE1, scan_value_percent(), '%');
+			else osd.printf("|");
+			if (BadPackets) osd.printf("%6u%c|", BadPackets, 0x9D);
+			else osd.printf("|");
+			if (Failsafes) osd.printf("%6u%c", Failsafes, 0x9C);
 		}
 	}
+#else
+	if (get_tsrx_version() == TSRX_IDLE_OLDER) {
+		osd.printf("%6u%c", BadChannel, 0x9D);
+	} else {
+		if (DEBUG_CHAN_ACTIVE) {
+			//osd.printf(" %c %3u%c|", 0xE1, packet_window_percent(), '%');
+			osd.printf("%6lu%c|", ChannelCount, 0x90 + ChannelCount % 12);
+			osd.printf("%6u%c|", BadChannel, 0x9D);
+		} else {
+			osd.printf(" %c %3u%c|", 0xE1, scan_value_percent(), '%');
+			//osd.printf("%6lu%c|", GoodPackets, 0x9E);
+			osd.printf("%6u%c|", BadPackets, 0x9D);
+		}
+		osd.printf("%6u%c", Failsafes, 0x9C);
+	}
+#endif
 	osd.closePanel();
 }

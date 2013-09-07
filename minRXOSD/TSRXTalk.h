@@ -15,12 +15,11 @@
 
 
 // TODO:
-//	for V2.5 and up
-//		OSD_Vars.h bereinigen		(bis auf PAL/NTSC Auswahl)
-//		OSD_Config.h bereinigen		(bis auf PAL/NTSC Auswahl)
-// 		evtl. live RSSI
-//		evtl. auf charset mit Kleinbuchstaben wechseln und Zeile 'if (c >= 'A' && c <= 'Z') c += 'a' - 'A';' entfernen
-//		evtl. RX bootstring merken um ihn jederzeit in einem Panel anzeigen zu koennen
+//	OSD_Vars.h bereinigen		(bis auf PAL/NTSC Auswahl)
+//	OSD_Config.h bereinigen		(bis auf PAL/NTSC Auswahl)
+
+
+#define DEBUG_CHAN_ACTIVE		ChannelCount	// > 0 if debug channel feature on LRS RX is active
 
 
 #define PACKET_TIMEOUT_FACTOR		1.2		// + 20% of frameduration
@@ -33,7 +32,7 @@
 #define	CHANNEL_ERROR_SHOW_MAX		999
 #define	CHANNEL_DIV			100
 #define	CHANNEL_STATUS_ROWS		3
-#define	CHANNEL_DELTA_DURATION		4500	// [ms]
+#define	CHANNEL_DELTA_DURATION		2000	// [ms]
 
 
 // for older versions
@@ -58,7 +57,7 @@
 typedef enum {
   TSRX_BOOT = 0,
   TSRX_VERSION_CHECK,
-  TSRX_IDLE_OLDER,			// idle of older version
+  TSRX_IDLE_OLDER,			// idle for older version
   TSRX_IDLE_FROM_V25,			// idle from version 2.5 up
   TSRX_FAILSAVE_START,			// waits for :
   TSRX_FAILSAVE_SCAN,			// read data
@@ -74,10 +73,9 @@ typedef enum {
 } tsrxtalk_parse_state_t;
 
 
-void tsrxtalk_init(void);
 uint8_t get_tsrx_version(void);
-int8_t scan_value_percent(void);
-int8_t packet_window_percent(void);
+uint8_t scan_value_percent(void);
+uint8_t packet_window_percent(void);
 int tsrxtalk_read(void);
 
 

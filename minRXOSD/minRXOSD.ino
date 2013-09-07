@@ -178,7 +178,6 @@ void setup()
 void loop() 
 {
     if (tsrxtalk_read()) {
-	pwm_read();		// currently we have time for polling, later we will use int version
 	writePanels();
     }
 }

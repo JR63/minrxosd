@@ -82,8 +82,8 @@ void scan_value_set(void) {
 }
 
 
-int8_t scan_value_percent(void) {
-	return (int8_t) ((1.0 - (float) BadPacketsDelta / (float) (GoodPacketsDelta + BadPacketsDelta)) * 100.0 + 0.5);
+uint8_t scan_value_percent(void) {
+	return (uint8_t) ((1.0 - (float) BadPacketsDelta / (float) (GoodPacketsDelta + BadPacketsDelta)) * 100.0 + 0.5);
 }
 
 
@@ -98,7 +98,7 @@ void packet_window_set(uint8_t good_bad, uint8_t cnt) {
 }
 
 
-int8_t packet_window_percent(void) {
+uint8_t packet_window_percent(void) {
 	int i;
 	uint8_t bads = 0;
 	
@@ -106,143 +106,64 @@ int8_t packet_window_percent(void) {
 		if (PacketWindow[i] == PACKED_BAD) bads++;
 	}
 	
-	return (int8_t) ((1.0 - (float) bads / (float) PacketsPerSecond) * 100.0 + 0.5);
+	return (uint8_t) ((1.0 - (float) bads / (float) PacketsPerSecond) * 100.0 + 0.5);
 }
 
 
 int detect_str_eeprom(uint8_t c) {
+	static char detect_str[] = " EEPROM";
 	static int detect_cnt = 0;
-	int ret = 0;
 	
-	// dumb string detect looking for string ' EEPROM' and one arbitrary char
-	switch (detect_cnt) {
-		case 0:
-			if (c == ' ') detect_cnt++;
-		break;
-		case 1:
-			if (c == 'E') detect_cnt++;
-			else detect_cnt = 0;
-		break;
-		case 2:
-			if (c == 'E') detect_cnt++;
-			else detect_cnt = 0;
-		break;
-		case 3:
-			if (c == 'P') detect_cnt++;
-			else detect_cnt = 0;
-		break;
-		case 4:
-			if (c == 'R') detect_cnt++;
-			else detect_cnt = 0;
-		break;
-		case 5:
-			if (c == 'O') detect_cnt++;
-			else detect_cnt = 0;
-		break;
-		case 6:
-			if (c == 'M') detect_cnt++;
-			else detect_cnt = 0;
-		break;
-		case 7:
-			ret = 1;
-		break;
-	}
-	return ret;
+	if (detect_cnt == 7) return 1;
+	
+	if (c == detect_str[detect_cnt]) detect_cnt++;
+	else detect_cnt = 0;
+	
+	return 0;
 }
 
 
 int detect_str_contact(uint8_t c) {
+	static char detect_str[] = "Contact";
 	static int detect_cnt = 0;
-	int ret = 0;
 	
-	// dumb string detect looking for string 'Contact' and one arbitrary char
-	switch (detect_cnt) {
-		case 0:
-			if (c == 'C') detect_cnt++;
-		break;
-		case 1:
-			if (c == 'o') detect_cnt++;
-			else detect_cnt = 0;
-		break;
-		case 2:
-			if (c == 'n') detect_cnt++;
-			else detect_cnt = 0;
-		break;
-		case 3:
-			if (c == 't') detect_cnt++;
-			else detect_cnt = 0;
-		break;
-		case 4:
-			if (c == 'a') detect_cnt++;
-			else detect_cnt = 0;
-		break;
-		case 5:
-			if (c == 'c') detect_cnt++;
-			else detect_cnt = 0;
-		break;
-		case 6:
-			if (c == 't') detect_cnt++;
-			else detect_cnt = 0;
-		break;
-		case 7:
-			ret = 1;
-		break;
-	}
-	return ret;
+	if (detect_cnt == 7) return 1;
+	
+	if (c == detect_str[detect_cnt]) detect_cnt++;
+	else detect_cnt = 0;
+	
+	return 0;
 }
 
 
 uint16_t detect_frameduration(uint8_t c) {
+	#define RATE_STR_LEN	6
+	static char detect_str[] = "Rate: ";
 	static int detect_cnt = 0;
 	static uint16_t frameduration = 0;
-	uint16_t ret = 0;
 	
-	// dumb string detect looking for string 'Rate: ' and the following value
-	switch (detect_cnt) {
-		case 0:
-			if (c == 'R') detect_cnt++;
-		break;
-		case 1:
-			if (c == 'a') detect_cnt++;
-			else detect_cnt = 0;
-		break;
-		case 2:
-			if (c == 't') detect_cnt++;
-			else detect_cnt = 0;
-		break;
-		case 3:
-			if (c == 'e') detect_cnt++;
-			else detect_cnt = 0;
-		break;
-		case 4:
-			if (c == ':') detect_cnt++;
-			else detect_cnt = 0;
-		break;
-		case 5:
-			if (c == ' ') detect_cnt++;
-			else detect_cnt = 0;
-		break;
-		case 6:
-		case 7:
-		case 8:
-		case 9:
-		case 10:
-			frameduration = frameduration * 10 + c - '0';
-			detect_cnt++;
-		break;
-		case 11:
-			PacketTimeout = (uint8_t) ((frameduration * PACKET_TIMEOUT_FACTOR) / 1000.0);
-			//osd.printf("|packet timeout: %2u", PacketTimeout);
-			PacketsPerSecond = (uint8_t) (1000.0 / (frameduration / 1000.0));
-			PacketsPerSecond = PacketsPerSecond > PACKET_WINDOW_MAX ? PACKET_WINDOW_MAX : PacketsPerSecond;
-			//osd.printf("|packets per second: %2u", PacketsPerSecond);
-			detect_cnt++;
-		break;
-		case 12:
-			ret = frameduration;
-		break;
+	if (detect_cnt == RATE_STR_LEN + 6) return frameduration;
+	
+	if (detect_cnt == RATE_STR_LEN + 5) {
+		PacketTimeout = (uint8_t) ((frameduration * PACKET_TIMEOUT_FACTOR + 500.0) / 1000.0);
+		//osd.printf("|packet timeout: %2u", PacketTimeout);
+		PacketsPerSecond = (uint8_t) (1000.0 / (frameduration / 1000.0));
+		PacketsPerSecond = PacketsPerSecond > PACKET_WINDOW_MAX ? PACKET_WINDOW_MAX : PacketsPerSecond;
+		//osd.printf("|packets per second: %2u", PacketsPerSecond);
+		detect_cnt++;
+		return 0;
 	}
-	return ret;
+	
+	if (detect_cnt >= RATE_STR_LEN) {
+		frameduration = frameduration * 10 + c - '0';
+		detect_cnt++;
+		return 0;
+	}
+	
+	if (c == detect_str[detect_cnt]) detect_cnt++;
+	else detect_cnt = 0;
+	
+	return 0;
 }
 
 

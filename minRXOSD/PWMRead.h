@@ -3,7 +3,7 @@
  *
  * @file       PWMRead.h
  * @author     Joerg-D. Rothfuchs
- * @brief      Implements a non int version of PWM read (do int version later)
+ * @brief      Implements PWM read
  *
  *****************************************************************************/
 
@@ -11,16 +11,15 @@
 #ifndef PWMREAD_H_
 #define PWMREAD_H_
 
-// TODO:
-// implement int version later
+#define PWM_CHECK(x)	(x > 1700)
 
-#define PWM_IN_PIN		3		// minimOSD PAL pin
-#define PWM_TIMEOUT		25000		// micro seconds
+#define PWM_PIN		3			// MinimOSD PAL pin
+#define PWM_INT  	1
 
-#define PWM_CHECK(x)		(x > 1700)
+//#define PIN_READ	digitalRead(PWM_PIN)	// slower than direct access
+#define PIN_READ	(PIND & 0b00001000)	// faster than digitalRead
 
 void pwm_read_init(void);
-void pwm_read(void);
 int pwm_get(void);
 
 #endif /* PWMREAD_H_ */
