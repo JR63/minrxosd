@@ -1,3 +1,3 @@
 # minRXOSD
 
-Wiki see at: https://code.google.com/p/minrxosd/wiki/Intro
+Wiki: https://code.google.com/p/minrxosd/wiki/Intro
